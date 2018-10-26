@@ -38,20 +38,20 @@ class GELU(torch.jit.ScriptModule):
         return gelu(x)
 
 
-class ResidualConnection(torch.jit.ScriptModule):
+class ResidualConnection(torch.nn.Module):
     """Wrap a layer to apply dropout, residual input connection and layer
     normalization
     """
 
-    def __init__(self, sublayer, shape, dropout):
+    def __init__(self, sublayer, dimension, dropout):
         super(ResidualConnection, self).__init__()
         self.sublayer = sublayer
-        self.norm = torch.nn.LayerNorm(shape)
+        self.norm = torch.nn.LayerNorm(dimension)
         self.dropout = torch.nn.Dropout(dropout)
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         "Apply residual connection to any sublayer with the same size."
-        return self.norm(x + self.dropout(self.sublayer(x)))
+        return self.norm(x + self.dropout(self.sublayer(x, *args, **kwargs)))
 
 
 class TransformerFeedForward(torch.jit.ScriptModule):
@@ -142,3 +142,97 @@ class MultiHeadedAttention(torch.jit.ScriptModule):
         x = x.transpose(1, 2).reshape(batch_size, -1, self.n_heads * self.head_dims)
 
         return self.output_linear(x)
+
+
+class MultiHeadedSelfAttention(MultiHeadedAttention):
+    def forward(self, inpt, mask):
+        return super()(inpt, inpt, inpt, mask)
+
+
+class TransformerBlock(torch.nn.Module):
+    """
+    Bidirectional Encoder = Transformer (self-attention)
+    Transformer = MultiHead_Attention + Feed_Forward with sublayer connection
+    """
+
+    def __init__(self, input_dim, output_dim, attn_heads, dropout):
+        """
+        :param hidden: hidden size of transformer
+        :param attn_heads: head sizes of multi-head attention
+        :param feed_forward_hidden: feed_forward_hidden, usually 4*hidden_size
+        :param dropout: dropout rate
+        """
+
+        super(TransformerBlock, self).__init__()
+        self.attention = MultiHeadedSelfAttention(features_size=input_dim, n_heads=attn_heads)
+        self.feed_forward = TransformerFeedForward(
+            input_dim=input_dim,
+            hidden_dim=output_dim,
+            dropout=dropout,
+        )
+        self.atention_sublayer = ResidualConnection(
+            self.attention,
+            dimension=input_dim,
+            dropout=dropout,
+        )
+        self.feed_forward_sublayer = ResidualConnection(
+            self.feed_forward,
+            dimension=input_dim,
+            dropout=dropout,
+        )
+        self.dropout = torch.nn.Dropout(p=dropout)
+
+    def forward(self, x, mask):
+        x = self.attention_sublayer(self.dropout(x), mask=mask)
+        x = self.feed_forward_sublayer(x)
+        return self.dropout(x)
+
+
+class PositionalEmbeddings(torch.jit.ScriptModule):
+    "Add positional embeddings to a sequence"
+
+    def __init__(self, dimension, max_len=1024):
+        super(PositionalEmbeddings, self).__init__()
+        self.weigth = torch.nn.Parameter(
+            torch.empty(dimension, max_len)
+        )
+        torch.nn.init.xavier_normal_(self.weight)
+
+    def forward(self, inpt):
+        seq_len = inpt.size(1)
+        return inpt + self.weight.narrow(1, 0, seq_len)
+
+
+class Encoder(torch.nn.Module):
+    def __init__(
+        self,
+        input_dimension,
+        output_dimension=512,
+        blocks=6,
+        hidden_dimension=None,
+        max_len=1024,
+        dropout=0.1,
+        attn_heads=8,
+    ):
+        super(Encoder, self).__init__()
+        if hidden_dimension is None:
+            hidden_dimension = output_dimension
+        self.positional_embeddings = PositionalEmbeddings(input_dimension, max_len)
+        self.input_block = TransformerBlock(input_dimension, hidden_dimension, attn_heads, dropout)
+        self.output_block = TransformerBlock(
+            hidden_dimension, output_dimension, attn_heads, dropout
+        )
+        self.blocks = torch.nn.ModuleList([
+            self.input_block,
+            *(
+                TransformerBlock(hidden_dimension, hidden_dimension, attn_heads, dropout)
+                for _ in range(blocks-2)
+            ),
+            self.output_block,
+        ])
+
+    def forward(self, inpt, mask):
+        out = inpt
+        for b in self.block:
+            out = b(out, mask)
+        return out
