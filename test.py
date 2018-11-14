@@ -40,7 +40,7 @@ class Net(torch.nn.Module):
 def prepare_batch(batch, device, non_blocking):
     (inpt, length), outpt = batch
     seq_len = length.max()
-    mask = torch.zeros(length.size(0), seq_len, seq_len, dtype=torch.uint8)
+    mask = torch.zeros(length.size(0), seq_len, seq_len, dtype=torch.uint8, device=device)
     for i, l in enumerate(length):
         mask[i, :, l:] = 1
     return (inpt, mask), outpt
