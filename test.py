@@ -43,7 +43,10 @@ def prepare_batch(batch, device, non_blocking):
     mask = torch.zeros(length.size(0), seq_len, seq_len, dtype=torch.uint8, device=device)
     for i, l in enumerate(length):
         mask[i, :, l:] = 1
-    return (inpt, mask), outpt
+    return (
+        torch.to(inpt, device=device, non_blocking=True), mask),
+        torch.to(outpt, device=device, non_blocking=True),
+    )
 
 
 def get_data_loaders(train_batch_size, test_batch_size, vectors, device):
@@ -59,7 +62,6 @@ def get_data_loaders(train_batch_size, test_batch_size, vectors, device):
     train_iter, test_iter = torchtext.data.BucketIterator.splits(
         (train_data, test_data),
         batch_sizes=(train_batch_size, test_batch_size),
-        device=device,
     )
 
     return train_iter, test_iter
