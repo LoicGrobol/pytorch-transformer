@@ -1,9 +1,5 @@
-import math
-
 import torch
 import torch.jit
-
-import numpy as np
 
 
 @torch.jit.script
@@ -76,19 +72,19 @@ class TransformerFeedForward(torch.nn.Module):
         return self.w_2(self.dropout(self.activation(self.w_1(x))))
 
 
+# FIXME: ASAP use None for sentinel instead of `torch.empty([0])`
 @torch.jit.script
-def scaled_dot_product_attention(query, key, value, mask=torch.empty([1]), use_mask=False):
+def scaled_dot_product_attention(query, key, value, mask=torch.empty([0])):
     """Apply the scaled dot-product attention.
 
     See :class:`~ScaledDotProductAttention` for more details.
     """
-    # type: (Tensor, Tensor, Tensor, Tensor, bool) -> Tensor
     # Stupid but needed for jit
     scale = torch.full([1], query.size(-1), device=query.device).rsqrt()
     # OPTIMISE: this is comparable to transpose+matmul in terms of speed for
     # now but it should get better
     scores = torch.einsum('...ij,...kj->...ik', (query, key))*scale
-    if use_mask:
+    if mask.is_same_size(scores):
         scores = scores.masked_fill_(mask, -1e9)
     attn = torch.nn.functional.softmax(scores, dim=-1)
     return torch.matmul(attn, value)
@@ -108,10 +104,9 @@ class ScaledDotProductAttention(torch.jit.ScriptModule):
     Output: `(*, sequence_length, features_size)`
     """
 
-    def forward(self, query, key, value, mask=None):
-        if mask is None:
-            return scaled_dot_product_attention(query, key, value)
-        return scaled_dot_product_attention(query, key, value, mask, use_mask=True)
+    @torch.jit.script_method
+    def forward(self, query, key, value, mask=torch.empty([0])):
+        return scaled_dot_product_attention(query, key, value, mask)
 
 
 class MultiHeadedAttention(torch.jit.ScriptModule):
@@ -200,7 +195,7 @@ class TransformerBlock(torch.nn.Module):
         return self.dropout(x)
 
 
-class PositionalEmbeddings(torch.nn.Module):
+class PositionalEmbeddings(torch.jit.ScriptModule):
     "Add positional embeddings to a sequence"
 
     def __init__(self, dimension, max_len=1024):
@@ -210,6 +205,7 @@ class PositionalEmbeddings(torch.nn.Module):
         )
         torch.nn.init.xavier_normal_(self.weight)
 
+    @torch.jit.script_method
     def forward(self, inpt):
         seq_len = inpt.size(1)
         return inpt + self.weight.narrow(1, 0, seq_len)
