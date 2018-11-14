@@ -13,6 +13,7 @@ import torchtext.vocab
 import tqdm
 
 import transformer
+import memutil
 
 
 class Net(torch.nn.Module):
@@ -101,6 +102,8 @@ def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, de
         if iter % log_interval == 0:
             pbar.desc = desc.format(engine.state.output)
             pbar.update(log_interval)
+
+        memutil.mem_report('mem_diag.log')
 
     @trainer.on(ignite.engine.Events.EPOCH_COMPLETED)
     def log_training_results(engine):
