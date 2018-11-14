@@ -115,6 +115,8 @@ class ScaledDotProductAttention(torch.jit.ScriptModule):
 
 
 class MultiHeadedAttention(torch.jit.ScriptModule):
+    __constants__ = ['n_heads', 'heads_dim']
+
     def __init__(self, features_dim, n_heads):
         super(MultiHeadedAttention, self).__init__()
 
@@ -129,7 +131,8 @@ class MultiHeadedAttention(torch.jit.ScriptModule):
         self.output_linear = torch.nn.Linear(self.n_heads*self.heads_dim, self.features_dim)
         self.attention = ScaledDotProductAttention()
 
-    def forward(self, query, key, value, mask=None):
+    @torch.jit.script_method
+    def forward(self, query, key, value, mask):
         batch_size = query.size(0)
 
         query = self.query_projectors(query).reshape(
@@ -144,7 +147,7 @@ class MultiHeadedAttention(torch.jit.ScriptModule):
 
         x = self.attention(
             query, key, value,
-            mask=mask.unsqueeze(1).expand(-1, self.n_heads, -1, -1)
+            mask.unsqueeze(1).expand(-1, self.n_heads, -1, -1),
         )
 
         x = x.transpose(1, 2).reshape(batch_size, -1, self.n_heads * self.heads_dim)
