@@ -54,7 +54,7 @@ class ResidualConnection(torch.nn.Module):
         return self.norm(x + self.dropout(self.sublayer(x, *args, **kwargs)))
 
 
-class TransformerFeedForward(torch.jit.ScriptModule):
+class TransformerFeedForward(torch.nn.Module):
     """The feed-forward sublayer of the transformer block
 
     To be precise, this is a two-layer feed-forward neural network whose input
@@ -76,7 +76,7 @@ class TransformerFeedForward(torch.jit.ScriptModule):
         return self.w_2(self.dropout(self.activation(self.w_1(x))))
 
 
-@torch.jit.script
+# @torch.jit.script
 def scaled_dot_product_attention(query, key, value, mask=None):
     """Apply the scaled dot-product attention.
 
@@ -91,14 +91,14 @@ def scaled_dot_product_attention(query, key, value, mask=None):
     return torch.matmul(attn, value)
 
 
-class ScaledDotProductAttention(torch.jit.ScriptModule):
+class ScaledDotProductAttention(torch.nn.Module):
     """Apply the scaled dot-product attention
 
     Inputs: query, key, value, mask
         - **query** of shape `(*, sequence_length, request_size)`
         - **key** of shape  `(*, sequence_length, request_size)`
         - **value** of shape  `(*, sequence_length, features_size)`
-        - **mask** :class:`torch.ByteTensor` of shape  `(*, sequence_length)
+        - **mask** :class:`torch.ByteTensor` of shape  `(*, sequence_length, sequence_length)
           with `1`s on the sequence items to mask (either for padding or
           masking)
 
@@ -109,7 +109,7 @@ class ScaledDotProductAttention(torch.jit.ScriptModule):
         return scaled_dot_product_attention(query, key, value, mask)
 
 
-class MultiHeadedAttention(torch.jit.ScriptModule):
+class MultiHeadedAttention(torch.nn.Module):
     def __init__(self, features_dim, n_heads):
         super(MultiHeadedAttention, self).__init__()
 
@@ -130,23 +130,26 @@ class MultiHeadedAttention(torch.jit.ScriptModule):
         query = self.query_projectors(query).reshape(
             batch_size, -1, self.n_heads, self.heads_dim
         ).transpose(1, 2)
-        key = self.key_projectors(query).reshape(
+        key = self.key_projectors(key).reshape(
             batch_size, -1, self.n_heads, self.heads_dim
         ).transpose(1, 2)
-        value = self.value_projectors(query).reshape(
+        value = self.value_projectors(value).reshape(
             batch_size, -1, self.n_heads, self.heads_dim
         ).transpose(1, 2)
 
-        x, attn = self.attention(query, key, value, mask=mask)
+        x = self.attention(
+            query, key, value,
+            mask=mask.unsqueeze(1).expand(-1, self.n_heads, -1, -1)
+        )
 
-        x = x.transpose(1, 2).reshape(batch_size, -1, self.n_heads * self.head_dims)
+        x = x.transpose(1, 2).reshape(batch_size, -1, self.n_heads * self.heads_dim)
 
         return self.output_linear(x)
 
 
 class MultiHeadedSelfAttention(MultiHeadedAttention):
     def forward(self, inpt, mask):
-        return super()(inpt, inpt, inpt, mask)
+        return super().forward(inpt, inpt, inpt, mask)
 
 
 class TransformerBlock(torch.nn.Module):
@@ -164,13 +167,13 @@ class TransformerBlock(torch.nn.Module):
         """
 
         super(TransformerBlock, self).__init__()
-        self.attention = MultiHeadedSelfAttention(features_size=input_dim, n_heads=attn_heads)
+        self.attention = MultiHeadedSelfAttention(features_dim=input_dim, n_heads=attn_heads)
         self.feed_forward = TransformerFeedForward(
             input_dim=input_dim,
             hidden_dim=output_dim,
             dropout=dropout,
         )
-        self.atention_sublayer = ResidualConnection(
+        self.attention_sublayer = ResidualConnection(
             self.attention,
             dimension=input_dim,
             dropout=dropout,
@@ -183,17 +186,18 @@ class TransformerBlock(torch.nn.Module):
         self.dropout = torch.nn.Dropout(p=dropout)
 
     def forward(self, x, mask):
-        x = self.attention_sublayer(self.dropout(x), mask=mask)
+        x = self.dropout(x)
+        x = self.attention_sublayer(x, mask=mask)
         x = self.feed_forward_sublayer(x)
         return self.dropout(x)
 
 
-class PositionalEmbeddings(torch.jit.ScriptModule):
+class PositionalEmbeddings(torch.nn.Module):
     "Add positional embeddings to a sequence"
 
     def __init__(self, dimension, max_len=1024):
         super(PositionalEmbeddings, self).__init__()
-        self.weigth = torch.nn.Parameter(
+        self.weight = torch.nn.Parameter(
             torch.empty(dimension, max_len)
         )
         torch.nn.init.xavier_normal_(self.weight)
@@ -233,6 +237,15 @@ class Encoder(torch.nn.Module):
 
     def forward(self, inpt, mask):
         out = inpt
-        for b in self.block:
+        for b in self.blocks:
             out = b(out, mask)
         return out
+
+
+def make_batch(samples):
+    samples = list(samples)
+    batch = torch.nn.utils.rnn.pad_sequence(samples, batch_first=True)
+    mask = torch.zeros(batch.size(0, batch.size(1), batch.size(1)), dtype=torch.uint8)
+    for i, s in enumerate(samples):
+        mask[i, :, s.size(0):] = 1
+    return batch, mask
