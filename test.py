@@ -44,8 +44,8 @@ def prepare_batch(batch, device, non_blocking):
     for i, l in enumerate(length):
         mask[i, :, l:] = 1
     return (
-        torch.to(inpt, device=device, non_blocking=True), mask),
-        torch.to(outpt, device=device, non_blocking=True),
+        (inpt.to(device=device, non_blocking=True), mask),
+        outpt.to(device=device, non_blocking=True),
     )
 
 
