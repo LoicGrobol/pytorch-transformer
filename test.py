@@ -46,7 +46,7 @@ def prepare_batch(batch, device, non_blocking):
     return (inpt, mask), outpt
 
 
-def get_data_loaders(train_batch_size, test_batch_size, vectors):
+def get_data_loaders(train_batch_size, test_batch_size, vectors, device):
     # set up fields
     TEXT = torchtext.data.Field(lower=True, include_lengths=True, batch_first=True)
     LABEL = torchtext.data.Field(sequential=False, is_target=True)
@@ -59,15 +59,16 @@ def get_data_loaders(train_batch_size, test_batch_size, vectors):
     train_iter, test_iter = torchtext.data.BucketIterator.splits(
         (train_data, test_data),
         batch_sizes=(train_batch_size, test_batch_size),
+        device=device,
     )
 
     return train_iter, test_iter
 
 
-def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval):
+def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, device):
     vectors = torchtext.vocab.GloVe(name='6B', dim=300)
-    train_loader, val_loader = get_data_loaders(train_batch_size, val_batch_size, vectors)
-    model = Net(out_dim=3, pretrained_embeddings=vectors.vectors)
+    train_loader, val_loader = get_data_loaders(train_batch_size, val_batch_size, vectors, device)
+    model = Net(out_dim=3, pretrained_embeddings=vectors.vectors).to(device)
 
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum)
     trainer = ignite.engine.create_supervised_trainer(
@@ -130,7 +131,7 @@ def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batch_size', type=int, default=2,
+    parser.add_argument('--batch_size', type=int, default=16,
                         help='input batch size for training (default: 16)')
     parser.add_argument('--val_batch_size', type=int, default=10,
                         help='input batch size for validation (default: 1000)')
@@ -145,4 +146,5 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-run(args.batch_size, args.val_batch_size, args.epochs, args.lr, args.momentum, args.log_interval)
+run(args.batch_size, args.val_batch_size, args.epochs, args.lr, args.momentum, args.log_interval,
+    device=torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'))
