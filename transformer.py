@@ -76,22 +76,25 @@ class TransformerFeedForward(torch.nn.Module):
         return self.w_2(self.dropout(self.activation(self.w_1(x))))
 
 
-# @torch.jit.script
-def scaled_dot_product_attention(query, key, value, mask=None):
+@torch.jit.script
+def scaled_dot_product_attention(query, key, value, mask=torch.empty([1]), use_mask=False):
     """Apply the scaled dot-product attention.
 
     See :class:`~ScaledDotProductAttention` for more details.
     """
+    # type: (Tensor, Tensor, Tensor, Tensor, bool) -> Tensor
+    # Stupid but needed for jit
+    scale = torch.full([1], query.size(-1)).rsqrt()
     # OPTIMISE: this is comparable to transpose+matmul in terms of speed for
     # now but it should get better
-    scores = torch.einsum('...ij,...kj->...ik', (query, key))/math.sqrt(query.size(-1))
-    if mask is not None:
-        scores = scores.masked_fill_(mask, -np.inf)
+    scores = torch.einsum('...ij,...kj->...ik', (query, key))*scale
+    if use_mask:
+        scores = scores.masked_fill_(mask, -1e9)
     attn = torch.nn.functional.softmax(scores, dim=-1)
     return torch.matmul(attn, value)
 
 
-class ScaledDotProductAttention(torch.nn.Module):
+class ScaledDotProductAttention(torch.jit.ScriptModule):
     """Apply the scaled dot-product attention
 
     Inputs: query, key, value, mask
@@ -106,10 +109,12 @@ class ScaledDotProductAttention(torch.nn.Module):
     """
 
     def forward(self, query, key, value, mask=None):
-        return scaled_dot_product_attention(query, key, value, mask)
+        if mask is None:
+            return scaled_dot_product_attention(query, key, value)
+        return scaled_dot_product_attention(query, key, value, mask, use_mask=True)
 
 
-class MultiHeadedAttention(torch.nn.Module):
+class MultiHeadedAttention(torch.jit.ScriptModule):
     def __init__(self, features_dim, n_heads):
         super(MultiHeadedAttention, self).__init__()
 
