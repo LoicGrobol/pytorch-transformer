@@ -41,17 +41,14 @@ def mem_report(file=sys.stderr):
             element_type = type(tensor).__name__
             size = tuple(tensor.size())
 
-            print(('%s\t\t%s\t\t%.2f' % (, file=file)
-                element_type,
-                size,
-                mem) )
+            print(f'{element_type}\t\t{size}\t\t{mem:.2f}', file=file)
         print(('-'*LEN), file=file)
         print(('Total Tensors: %d \tUsed Memory Space: %.2f MBytes' % (total_numel, total_mem) ), file=file)
         print(('-'*LEN), file=file)
 
     LEN = 65
     print(('='*LEN), file=file)
-    print(f'At {time.time()}')
+    print(f'At {time.time()}', file=file)
     objects = gc.get_objects()
     print(('%s\t%s\t\t\t%s' %('Element type', 'Size', 'Used MEM(MBytes)') ), file=file)
     tensors = [obj for obj in objects if torch.is_tensor(obj)]

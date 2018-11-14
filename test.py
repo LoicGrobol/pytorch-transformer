@@ -103,7 +103,7 @@ def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, de
             pbar.desc = desc.format(engine.state.output)
             pbar.update(log_interval)
 
-        memutil.mem_report('mem_diag.log')
+        memutil.mem_report(open('mem_diag.log', 'a'))
 
     @trainer.on(ignite.engine.Events.EPOCH_COMPLETED)
     def log_training_results(engine):
