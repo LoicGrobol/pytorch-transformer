@@ -76,6 +76,7 @@ def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, de
         optimizer,
         torch.nn.functional.nll_loss,
         prepare_batch=prepare_batch,
+        device=device,
     )
     evaluator = ignite.engine.create_supervised_evaluator(
         model,
@@ -84,6 +85,7 @@ def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, de
             'nll': ignite.metrics.Loss(torch.nn.functional.nll_loss),
         },
         prepare_batch=prepare_batch,
+        device=device,
     )
 
     desc = "ITERATION - loss: {:.2f}"
