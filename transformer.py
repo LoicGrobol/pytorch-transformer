@@ -84,7 +84,7 @@ def scaled_dot_product_attention(query, key, value, mask=torch.empty([1]), use_m
     """
     # type: (Tensor, Tensor, Tensor, Tensor, bool) -> Tensor
     # Stupid but needed for jit
-    scale = torch.full([1], query.size(-1)).rsqrt()
+    scale = torch.full([1], query.size(-1), device=query.device).rsqrt()
     # OPTIMISE: this is comparable to transpose+matmul in terms of speed for
     # now but it should get better
     scores = torch.einsum('...ij,...kj->...ik', (query, key))*scale
