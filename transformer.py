@@ -30,6 +30,7 @@ class GELU(torch.jit.ScriptModule):
         - Output: :math:`(N, *)`, same shape as the input
     """
 
+    @torch.jit.script_method
     def forward(self, x):
         return gelu(x)
 
@@ -221,12 +222,15 @@ class Encoder(torch.nn.Module):
         max_len=1024,
         dropout=0.1,
         attn_heads=8,
+        seq_output=True,
     ):
         super(Encoder, self).__init__()
         if hidden_dimension is None:
             hidden_dimension = output_dimension
         self.positional_embeddings = PositionalEmbeddings(input_dimension, max_len)
-        self.input_block = TransformerBlock(input_dimension, hidden_dimension, attn_heads, dropout)
+        self.input_block = TransformerBlock(
+            input_dimension, hidden_dimension, attn_heads, dropout
+        )
         self.output_block = TransformerBlock(
             hidden_dimension, output_dimension, attn_heads, dropout
         )
@@ -244,6 +248,40 @@ class Encoder(torch.nn.Module):
         for b in self.blocks:
             out = b(out, mask)
         return out
+
+
+class TransformerOpt(torch.optim.Adam):
+    "Optim wrapper that implements rate."
+    def __init__(self, parameters, input_size, factor=2, warmup=4000, **kwargs):
+        super().__init__(
+            parameters,
+            **{
+                'lr': 0,
+                'betas': (0.9, 0.98),
+                'eps': 1e-9,
+                **kwargs,
+            },
+        )
+        self._step = 0
+        self.warmup = warmup
+        self.factor = factor
+        self.input_size = input_size
+
+    def step(self):
+        "Update parameters and rate"
+        self._step += 1
+        rate = self.rate(self._step)
+        for p in self.param_groups:
+            p['lr'] = rate
+        super().step()
+
+    def rate(self, step):
+        "Implement `lrate` above"
+        return (
+            self.factor
+            * (self.input_size ** (-0.5)
+            * min(step ** (-0.5), step * self.warmup ** (-1.5)))
+        )
 
 
 def make_batch(samples):
