@@ -49,6 +49,57 @@ def prepare_batch(batch, device, non_blocking):
     )
 
 
+def add_epoch_bar(engine):
+    @engine.on(ignite.engine.Events.EPOCH_STARTED)
+    def epoch_init(engine):
+        if engine.state.max_epochs > 1:
+            desc = f'Epoch {engine.state.epoch}/{engine.state.max_epochs}'
+        else:
+            desc = 'Running model'
+
+        engine.state.epoch_bar = tqdm.tqdm(
+            desc=desc,
+            initial=0,
+            total=len(engine.state.dataloader),
+            unit='batch',
+            dynamic_ncols=True,
+            leave=False,
+            unit_scale=True,
+            mininterval=1,
+        )
+
+    @engine.on(ignite.engine.Events.ITERATION_COMPLETED)
+    def update_bars(engine):
+        engine.state.epoch_bar.update()
+
+    @engine.on(ignite.engine.Events.EPOCH_COMPLETED)
+    def epoch_feedback(engine):
+        engine.state.epoch_bar.close()
+
+
+def add_train_bar(engine):
+    @engine.on(ignite.engine.Events.STARTED)
+    def train_init(engine):
+        engine.state.train_bar = tqdm.tqdm(
+            desc='Training',
+            initial=0,
+            total=engine.state.max_epochs,
+            unit='epoch',
+            dynamic_ncols=True,
+            leave=False,
+            unit_scale=True,
+            mininterval=1,
+        )
+
+    @engine.on(ignite.engine.Events.ITERATION_COMPLETED)
+    def update_bars(engine):
+        engine.state.train_bar.update(1/len(engine.state.dataloader))
+
+    @engine.on(ignite.engine.Events.COMPLETED)
+    def epoch_feedback(engine):
+        engine.state.train_bar.close()
+
+
 def get_data_loaders(train_batch_size, test_batch_size, vectors, device):
     # set up fields
     TEXT = torchtext.data.Field(lower=True, include_lengths=True, batch_first=True)
@@ -89,30 +140,19 @@ def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, de
         prepare_batch=prepare_batch,
         device=device,
     )
+    add_train_bar(trainer)
+    add_epoch_bar(trainer)
+    add_epoch_bar(evaluator)
 
-    desc = "ITERATION - loss: {:.2f}"
-    pbar = tqdm.tqdm(
-        initial=0, leave=False, total=len(train_loader),
-        desc=desc.format(0)
-    )
-
-    @trainer.on(ignite.engine.Events.ITERATION_COMPLETED)
-    def log_training_loss(engine):
-        iter = (engine.state.iteration - 1) % len(train_loader) + 1
-
-        if iter % log_interval == 0:
-            pbar.desc = desc.format(engine.state.output)
-            pbar.update(log_interval)
 
     @trainer.on(ignite.engine.Events.EPOCH_COMPLETED)
     def log_training_results(engine):
-        pbar.refresh()
         evaluator.run(train_loader)
         metrics = evaluator.state.metrics
         avg_accuracy = metrics['accuracy']
         avg_nll = metrics['nll']
-        tqdm.tqdm.write(
-            "Training Results - Epoch: {}  Avg accuracy: {:.2f} Avg loss: {:.2f}"
+        pbar.log_message(
+            "Training Results - Epoch: {}  Avg accuracy: {:.6f} Avg loss: {:.6f}"
             .format(engine.state.epoch, avg_accuracy, avg_nll)
         )
 
@@ -122,12 +162,11 @@ def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, de
         metrics = evaluator.state.metrics
         avg_accuracy = metrics['accuracy']
         avg_nll = metrics['nll']
-        tqdm.tqdm.write(
+        pbar.log_message(
             f"Validation Results - Epoch: {engine.state.epoch}  "
-            f"Avg accuracy: {avg_accuracy:.2f} Avg loss: {avg_nll:.2f}"
+            f"Avg accuracy: {avg_accuracy:.6f} Avg loss: {avg_nll:.6f}"
         )
 
-        pbar.n = pbar.last_print_n = 0
 
     trainer.run(train_loader, max_epochs=epochs)
     pbar.close()
