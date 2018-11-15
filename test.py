@@ -151,7 +151,7 @@ def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, de
         metrics = evaluator.state.metrics
         avg_accuracy = metrics['accuracy']
         avg_nll = metrics['nll']
-        pbar.log_message(
+        tqdm.tqdm.write(
             "Training Results - Epoch: {}  Avg accuracy: {:.6f} Avg loss: {:.6f}"
             .format(engine.state.epoch, avg_accuracy, avg_nll)
         )
@@ -162,7 +162,7 @@ def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, de
         metrics = evaluator.state.metrics
         avg_accuracy = metrics['accuracy']
         avg_nll = metrics['nll']
-        pbar.log_message(
+        tqdm.tqdm.write(
             f"Validation Results - Epoch: {engine.state.epoch}  "
             f"Avg accuracy: {avg_accuracy:.6f} Avg loss: {avg_nll:.6f}"
         )
