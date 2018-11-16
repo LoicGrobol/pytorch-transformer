@@ -123,7 +123,7 @@ def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, de
     train_loader, val_loader = get_data_loaders(train_batch_size, val_batch_size, vectors, device)
     model = Net(out_dim=3, pretrained_embeddings=vectors.vectors).to(device)
 
-    optimizer = transformer.TransformerOpt(model.parameters(), 300)
+    optimizer = torch.optim.Adam(model.parameters())
     trainer = ignite.engine.create_supervised_trainer(
         model,
         optimizer,
