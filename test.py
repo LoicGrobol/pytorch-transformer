@@ -167,9 +167,7 @@ def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, de
             f"Avg accuracy: {avg_accuracy:.6f} Avg loss: {avg_nll:.6f}"
         )
 
-
     trainer.run(train_loader, max_epochs=epochs)
-    pbar.close()
 
 
 if __name__ == "__main__":

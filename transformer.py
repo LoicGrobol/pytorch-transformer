@@ -73,9 +73,9 @@ class TransformerFeedForward(torch.nn.Module):
         return self.w_2(self.dropout(self.activation(self.w_1(x))))
 
 
-# FIXME: ASAP use None for sentinel instead of `torch.empty([0])`
 @torch.jit.script
-def scaled_dot_product_attention(query, key, value, mask=torch.empty([0])):
+def scaled_dot_product_attention(query, key, value, mask=None):
+    # type: (Tensor, Tensor, Tensor, Optional[Tensor]) -> Tensor
     """Apply the scaled dot-product attention.
 
     See :class:`~ScaledDotProductAttention` for more details.
@@ -85,8 +85,9 @@ def scaled_dot_product_attention(query, key, value, mask=torch.empty([0])):
     # OPTIMISE: this is comparable to transpose+matmul in terms of speed for
     # now but it should get better
     scores = torch.einsum('...ij,...kj->...ik', (query, key))*scale
-    if mask.is_same_size(scores):
-        scores = scores.masked_fill_(mask, -1e9)
+    if mask is not None:
+        mask_t = torch.jit._unwrap_optional(mask)
+        scores = scores.masked_fill_(mask_t, -1e9)
     attn = torch.nn.functional.softmax(scores, dim=-1)
     return torch.matmul(attn, value)
 
@@ -106,7 +107,8 @@ class ScaledDotProductAttention(torch.jit.ScriptModule):
     """
 
     @torch.jit.script_method
-    def forward(self, query, key, value, mask=torch.empty([0])):
+    def forward(self, query, key, value, mask=None):
+        # type: (Tensor, Tensor, Tensor, Optional[Tensor]) -> Tensor
         return scaled_dot_product_attention(query, key, value, mask)
 
 
@@ -141,10 +143,9 @@ class MultiHeadedAttention(torch.jit.ScriptModule):
             batch_size, -1, self.n_heads, self.heads_dim
         ).transpose(1, 2)
 
-        x = self.attention(
-            query, key, value,
-            mask.unsqueeze(1).expand(-1, self.n_heads, -1, -1),
-        )
+        # Use the same mask for all the heads
+        mask = mask.unsqueeze(1).expand(-1, self.n_heads, -1, -1)
+        x = self.attention(query, key, value, mask)
 
         x = x.transpose(1, 2).reshape(batch_size, -1, self.n_heads * self.heads_dim)
 
