@@ -123,7 +123,7 @@ def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, de
     train_loader, val_loader = get_data_loaders(train_batch_size, val_batch_size, vectors, device)
     model = Net(out_dim=3, pretrained_embeddings=vectors.vectors).to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum)
     trainer = ignite.engine.create_supervised_trainer(
         model,
         optimizer,
@@ -143,7 +143,6 @@ def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, de
     add_train_bar(trainer)
     add_epoch_bar(trainer)
     add_epoch_bar(evaluator)
-
 
     @trainer.on(ignite.engine.Events.EPOCH_COMPLETED)
     def log_training_results(engine):
