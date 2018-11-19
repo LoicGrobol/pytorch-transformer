@@ -131,7 +131,7 @@ class SuperBatchWrapper(collections.abc.Iterable):
 
     def __iter__(self):
         itr = iter(self.wrapped)
-        while True:
+        for i in range(len(self)):
             yield it.islice(itr, self.superbatch_size)
 
 
