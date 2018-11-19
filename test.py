@@ -135,7 +135,7 @@ class SuperBatchWrapper(collections.abc.Iterable):
             yield it.islice(itr, self.superbatch_size)
 
 
-def run(train_batch_size, memory_batch_size, epochs, lr, momentum, log_interval, device):
+def run(train_batch_size, memory_batch_size, epochs, lr, weight_decay, momentum, device):
     vectors = torchtext.vocab.GloVe(name='6B', dim=300)
     train_loader, val_loader = get_data_loaders(memory_batch_size, vectors, device)
     train_superbatch_loader = SuperBatchWrapper(
@@ -145,7 +145,7 @@ def run(train_batch_size, memory_batch_size, epochs, lr, momentum, log_interval,
     step_size = train_batch_size//memory_batch_size
     model = Net(out_dim=3, pretrained_embeddings=vectors.vectors).to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     def train_on_batch(engine, batch):
         batch_loss = torch.zeros([1], device=device, dtype=torch.float, requires_grad=False)
@@ -207,14 +207,14 @@ if __name__ == "__main__":
                help='number of samples to load in memory at the same time (default: 2)')
     parser.add_argument('--epochs', type=int, default=10,
                         help='number of epochs to train (default: 10)')
-    parser.add_argument('--lr', type=float, default=0.01,
+    parser.add_argument('--lr', type=float, default=1e-4,
                         help='learning rate (default: 0.01)')
+    parser.add_argument('--weight_decay', type=float, default=0.01,
+                        help='weight decay (default: 0.01)')
     parser.add_argument('--momentum', type=float, default=0.5,
                         help='SGD momentum (default: 0.5)')
-    parser.add_argument('--log_interval', type=int, default=10,
-                        help='how many batches to wait before logging training status')
 
     args = parser.parse_args()
 
-run(args.batch_size, args.memory_batch_size, args.epochs, args.lr, args.momentum, args.log_interval,
+run(args.batch_size, args.memory_batch_size, args.epochs, args.lr, args.weight_decay, args.momentum,
     device=torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'))
