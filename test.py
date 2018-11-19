@@ -1,4 +1,7 @@
 import argparse
+import collections.abc
+import itertools as it
+import math
 
 import ignite.engine
 import ignite.metrics
@@ -37,15 +40,15 @@ class Net(torch.nn.Module):
         return torch.nn.functional.log_softmax(scores, dim=-1)
 
 
-def prepare_batch(batch, device, non_blocking):
+def prepare_batch(batch, device, non_blocking=True):
     (inpt, length), outpt = batch
     seq_len = length.max()
     mask = torch.zeros(length.size(0), seq_len, seq_len, dtype=torch.uint8, device=device)
     for i, l in enumerate(length):
         mask[i, :, l:] = 1
     return (
-        (inpt.to(device=device, non_blocking=True), mask),
-        outpt.to(device=device, non_blocking=True),
+        (inpt.to(device=device, non_blocking=non_blocking), mask),
+        outpt.to(device=device, non_blocking=non_blocking),
     )
 
 
@@ -100,7 +103,7 @@ def add_train_bar(engine):
         engine.state.train_bar.close()
 
 
-def get_data_loaders(train_batch_size, test_batch_size, vectors, device):
+def get_data_loaders(batch_size, vectors, device):
     # set up fields
     TEXT = torchtext.data.Field(lower=True, include_lengths=True, batch_first=True)
     LABEL = torchtext.data.Field(sequential=False, is_target=True)
@@ -112,31 +115,52 @@ def get_data_loaders(train_batch_size, test_batch_size, vectors, device):
 
     train_iter, test_iter = torchtext.data.BucketIterator.splits(
         (train_data, test_data),
-        batch_sizes=(train_batch_size, test_batch_size),
+        batch_size=batch_size,
     )
 
     return train_iter, test_iter
 
 
-def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, device):
+class SuperBatchWrapper(collections.abc.Iterable):
+    def __init__(self, wrapped, superbatch_size):
+        self.wrapped = wrapped
+        self.superbatch_size = superbatch_size
+
+    def __len__(self):
+        return math.ceil(len(self.wrapped)/self.superbatch_size)
+
+    def __iter__(self):
+        itr = iter(self.wrapped)
+        while True:
+            yield it.islice(itr, self.superbatch_size)
+
+
+def run(train_batch_size, memory_batch_size, epochs, lr, momentum, log_interval, device):
     vectors = torchtext.vocab.GloVe(name='6B', dim=300)
-    train_loader, val_loader = get_data_loaders(train_batch_size, val_batch_size, vectors, device)
+    train_loader, val_loader = get_data_loaders(memory_batch_size, vectors, device)
+    train_superbatch_loader = SuperBatchWrapper(
+        train_loader,
+        train_batch_size,
+    )
+    step_size = train_batch_size//memory_batch_size
     model = Net(out_dim=3, pretrained_embeddings=vectors.vectors).to(device)
 
-    optimizer = torch.optim.SGD(
-        model.parameters(),
-        lr=lr,
-        momentum=momentum,
-        weight_decay=1e-4,
-        nesterov=True,
-    )
-    trainer = ignite.engine.create_supervised_trainer(
-        model,
-        optimizer,
-        torch.nn.functional.nll_loss,
-        prepare_batch=prepare_batch,
-        device=device,
-    )
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+
+    def train_on_batch(engine, batch):
+        batch_loss = torch.zeros([1], device=device, dtype=torch.float, requires_grad=False)
+        optimizer.zero_grad()
+        for sub_batch in batch:
+            inpt, targets = prepare_batch(sub_batch, device)
+            outputs = model(inpt)
+            loss = torch.nn.functional.nll_loss(outputs, targets) / step_size
+            with torch.no_grad():
+                batch_loss += loss
+            loss.backward()
+        optimizer.step()
+        return batch_loss
+
+    trainer = ignite.engine.Engine(train_on_batch)
     evaluator = ignite.engine.create_supervised_evaluator(
         model,
         metrics={
@@ -172,15 +196,15 @@ def run(train_batch_size, val_batch_size, epochs, lr, momentum, log_interval, de
             f"Avg accuracy: {avg_accuracy:.6f} Avg loss: {avg_nll:.6f}"
         )
 
-    trainer.run(train_loader, max_epochs=epochs)
+    trainer.run(train_superbatch_loader, max_epochs=epochs)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batch_size', type=int, default=16,
-                        help='input batch size for training (default: 16)')
-    parser.add_argument('--val_batch_size', type=int, default=10,
-                        help='input batch size for validation (default: 1000)')
+    parser.add_argument('--batch_size', type=int, default=64,
+                        help='input batch size for training (default: 64)')
+    parser.add_argument('--memory_batch_size', type=int, default=2,
+               help='number of samples to load in memory at the same time (default: 2)')
     parser.add_argument('--epochs', type=int, default=10,
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--lr', type=float, default=0.01,
@@ -192,5 +216,5 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-run(args.batch_size, args.val_batch_size, args.epochs, args.lr, args.momentum, args.log_interval,
+run(args.batch_size, args.memory_batch_size, args.epochs, args.lr, args.momentum, args.log_interval,
     device=torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'))
