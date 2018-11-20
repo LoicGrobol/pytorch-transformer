@@ -251,40 +251,6 @@ class Encoder(torch.nn.Module):
         return out
 
 
-class TransformerAdam(torch.optim.Adam):
-    "Optim wrapper that implements rate."
-    def __init__(self, parameters, input_size, factor=1, warmup=4000, **kwargs):
-        super().__init__(
-            parameters,
-            **{
-                'lr': 0,
-                'betas': (0.9, 0.98),
-                'eps': 1e-9,
-                **kwargs,
-            },
-        )
-        self._step = 0
-        self.warmup = warmup
-        self.factor = factor
-        self.input_size = input_size
-
-    def step(self, closure=None):
-        "Update parameters and rate"
-        self._step += 1
-        rate = self.rate(self._step)
-        for p in self.param_groups:
-            p['lr'] = rate
-        super().step(closure)
-
-    def rate(self, step):
-        "Implement `lrate` above"
-        return (
-            self.factor
-            * self.input_size**-0.5
-            * min(step**-0.5, step * self.warmup**-1.5)
-        )
-
-
 def make_batch(samples):
     samples = list(samples)
     batch = torch.nn.utils.rnn.pad_sequence(samples, batch_first=True)
