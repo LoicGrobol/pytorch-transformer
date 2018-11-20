@@ -251,9 +251,9 @@ class Encoder(torch.nn.Module):
         return out
 
 
-class TransformerOpt(torch.optim.Adam):
+class TransformerAdam(torch.optim.Adam):
     "Optim wrapper that implements rate."
-    def __init__(self, parameters, input_size, factor=2, warmup=4000, **kwargs):
+    def __init__(self, parameters, input_size, factor=1, warmup=4000, **kwargs):
         super().__init__(
             parameters,
             **{
@@ -268,20 +268,20 @@ class TransformerOpt(torch.optim.Adam):
         self.factor = factor
         self.input_size = input_size
 
-    def step(self):
+    def step(self, closure=None):
         "Update parameters and rate"
         self._step += 1
         rate = self.rate(self._step)
         for p in self.param_groups:
             p['lr'] = rate
-        super().step()
+        super().step(closure)
 
     def rate(self, step):
         "Implement `lrate` above"
         return (
             self.factor
-            * (self.input_size ** (-0.5)
-            * min(step ** (-0.5), step * self.warmup ** (-1.5)))
+            * self.input_size**-0.5
+            * min(step**-0.5, step * self.warmup**-1.5)
         )
 
 
