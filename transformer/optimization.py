@@ -34,9 +34,9 @@ class CosineWarmupScheduler(WarmupScheduler):
 
     ):
         self.total_steps = total_steps
-        super().__init__(optimizer, warmup_steps, self.schedule, last_epoch)
+        super().__init__(optimizer, warmup_steps, self._schedule, last_epoch)
 
-    def schedule(self, step):
+    def _schedule(self, step):
         return 0.5 * (1.0 + torch.cos(math.pi * step/self.total_steps))
 
     def step(self, epoch=None):
@@ -57,9 +57,9 @@ class LinearWarmupScheduler(WarmupScheduler):
 
     ):
         self.total_steps = total_steps
-        super().__init__(optimizer, warmup_steps, self.schedule, last_epoch)
+        super().__init__(optimizer, warmup_steps, self._schedule, last_epoch)
 
-    def schedule(self, step):
+    def _schedule(self, step):
         return 1.0 - step/self.total_steps
 
     def step(self, epoch=None):
@@ -68,3 +68,18 @@ class LinearWarmupScheduler(WarmupScheduler):
                 f'Exhausted scheduler: the planned number of steps was {self.total_steps}'
             )
         super().step(epoch)
+
+
+class NoamScheduler(WarmupScheduler):
+    def __init__(
+        self,
+        optimizer,
+        model_size,
+        warmup_steps,
+        last_epoch=-1
+    ):
+        self.model_size = model_size
+        super().__init__(optimizer, warmup_steps, self._schedule, last_epoch)
+
+    def _schedule(self, step):
+        return self.model_size**-0.5 * step**-0.5
