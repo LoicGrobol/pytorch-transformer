@@ -16,6 +16,7 @@ class WarmupScheduler(torch.optim.lr_scheduler._LRScheduler):
     ):
         self.warmup_steps = warmup_steps
         self.max_steps = -1
+        self.schedule = schedule
         super().__init__(optimizer, last_epoch)
 
     def get_lr(self):
