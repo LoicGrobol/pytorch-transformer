@@ -84,7 +84,7 @@ def scaled_dot_product_attention(query, key, value, mask=None):
     scale = torch.full([1], query.size(-1), device=query.device).rsqrt()
     # OPTIMISE: this is comparable to transpose+matmul in terms of speed for
     # now but it should get better
-    scores = torch.einsum('...ij,...kj->...ik', (query, key))*scale
+    scores = torch.einsum("...ij,...kj->...ik", (query, key)) * scale
     if mask is not None:
         mask_t = torch.jit._unwrap_optional(mask)
         scores = scores.masked_fill_(mask_t, -1e9)
@@ -113,7 +113,7 @@ class ScaledDotProductAttention(torch.jit.ScriptModule):
 
 
 class MultiHeadedAttention(torch.jit.ScriptModule):
-    __constants__ = ['n_heads', 'heads_dim']
+    __constants__ = ["n_heads", "heads_dim"]
 
     def __init__(self, features_dim, n_heads):
         super(MultiHeadedAttention, self).__init__()
@@ -122,26 +122,40 @@ class MultiHeadedAttention(torch.jit.ScriptModule):
         self.n_heads = n_heads
         self.heads_dim = features_dim // n_heads
 
-        self.query_projectors = torch.nn.Linear(self.features_dim, self.n_heads*self.heads_dim)
-        self.key_projectors = torch.nn.Linear(self.features_dim, self.n_heads*self.heads_dim)
-        self.value_projectors = torch.nn.Linear(self.features_dim, self.n_heads*self.heads_dim)
+        self.query_projectors = torch.nn.Linear(
+            self.features_dim, self.n_heads * self.heads_dim
+        )
+        self.key_projectors = torch.nn.Linear(
+            self.features_dim, self.n_heads * self.heads_dim
+        )
+        self.value_projectors = torch.nn.Linear(
+            self.features_dim, self.n_heads * self.heads_dim
+        )
 
-        self.output_linear = torch.nn.Linear(self.n_heads*self.heads_dim, self.features_dim)
+        self.output_linear = torch.nn.Linear(
+            self.n_heads * self.heads_dim, self.features_dim
+        )
         self.attention = ScaledDotProductAttention()
 
     @torch.jit.script_method
     def forward(self, query, key, value, mask):
         batch_size = query.size(0)
 
-        query = self.query_projectors(query).reshape(
-            batch_size, -1, self.n_heads, self.heads_dim
-        ).transpose(1, 2)
-        key = self.key_projectors(key).reshape(
-            batch_size, -1, self.n_heads, self.heads_dim
-        ).transpose(1, 2)
-        value = self.value_projectors(value).reshape(
-            batch_size, -1, self.n_heads, self.heads_dim
-        ).transpose(1, 2)
+        query = (
+            self.query_projectors(query)
+            .reshape(batch_size, -1, self.n_heads, self.heads_dim)
+            .transpose(1, 2)
+        )
+        key = (
+            self.key_projectors(key)
+            .reshape(batch_size, -1, self.n_heads, self.heads_dim)
+            .transpose(1, 2)
+        )
+        value = (
+            self.value_projectors(value)
+            .reshape(batch_size, -1, self.n_heads, self.heads_dim)
+            .transpose(1, 2)
+        )
 
         # Use the same mask for all the heads
         mask = mask.unsqueeze(1).expand(-1, self.n_heads, -1, -1)
@@ -172,21 +186,17 @@ class TransformerBlock(torch.nn.Module):
         """
 
         super(TransformerBlock, self).__init__()
-        self.attention = MultiHeadedSelfAttention(features_dim=input_dim, n_heads=attn_heads)
+        self.attention = MultiHeadedSelfAttention(
+            features_dim=input_dim, n_heads=attn_heads
+        )
         self.feed_forward = TransformerFeedForward(
-            input_dim=input_dim,
-            hidden_dim=output_dim,
-            dropout=dropout,
+            input_dim=input_dim, hidden_dim=output_dim, dropout=dropout
         )
         self.attention_sublayer = ResidualConnection(
-            self.attention,
-            dimension=input_dim,
-            dropout=dropout,
+            self.attention, dimension=input_dim, dropout=dropout
         )
         self.feed_forward_sublayer = ResidualConnection(
-            self.feed_forward,
-            dimension=input_dim,
-            dropout=dropout,
+            self.feed_forward, dimension=input_dim, dropout=dropout
         )
         self.dropout = torch.nn.Dropout(p=dropout)
 
@@ -202,9 +212,7 @@ class PositionalEmbeddings(torch.jit.ScriptModule):
 
     def __init__(self, dimension, max_len=1024):
         super(PositionalEmbeddings, self).__init__()
-        self.weight = torch.nn.Parameter(
-            torch.empty(dimension, max_len)
-        )
+        self.weight = torch.nn.Parameter(torch.empty(dimension, max_len))
         torch.nn.init.xavier_normal_(self.weight)
 
     @torch.jit.script_method
@@ -234,14 +242,18 @@ class Encoder(torch.nn.Module):
         self.output_block = TransformerBlock(
             hidden_dimension, output_dimension, attn_heads, dropout
         )
-        self.blocks = torch.nn.ModuleList([
-            self.input_block,
-            *(
-                TransformerBlock(hidden_dimension, hidden_dimension, attn_heads, dropout)
-                for _ in range(blocks-2)
-            ),
-            self.output_block,
-        ])
+        self.blocks = torch.nn.ModuleList(
+            [
+                self.input_block,
+                *(
+                    TransformerBlock(
+                        hidden_dimension, hidden_dimension, attn_heads, dropout
+                    )
+                    for _ in range(blocks - 2)
+                ),
+                self.output_block,
+            ]
+        )
 
     def forward(self, inpt, mask):
         out = inpt
@@ -255,5 +267,5 @@ def make_batch(samples):
     batch = torch.nn.utils.rnn.pad_sequence(samples, batch_first=True)
     mask = torch.zeros(batch.size(0, batch.size(1), batch.size(1)), dtype=torch.uint8)
     for i, s in enumerate(samples):
-        mask[i, :, s.size(0):] = 1
+        mask[i, :, s.size(0) :] = 1
     return batch, mask
