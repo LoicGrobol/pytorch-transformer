@@ -223,7 +223,6 @@ class Encoder(torch.nn.Module):
         max_len=1024,
         dropout=0.1,
         attn_heads=8,
-        seq_output=True,
     ):
         super(Encoder, self).__init__()
         if hidden_dimension is None:
