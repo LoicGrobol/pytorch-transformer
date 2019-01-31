@@ -86,8 +86,7 @@ def scaled_dot_product_attention(query, key, value, mask=None):
     # now but it should get better
     scores = torch.einsum("...ij,...kj->...ik", (query, key)) * scale
     if mask is not None:
-        mask_t = torch.jit._unwrap_optional(mask)
-        scores = scores.masked_fill_(mask_t, -1e9)
+        scores = scores.masked_fill_(mask, -1e32)
     attn = torch.nn.functional.softmax(scores, dim=-1)
     return torch.matmul(attn, value)
 
